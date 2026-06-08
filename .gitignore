@@ -1,0 +1,13 @@
+.cache/
+dist/
+node_modules/
+*.tgz
+npm/*/bin/
+npm/*/index.js
+npm/*/package.json
+npm/*/README.md
+npm/*/LICENSE
+.env
+.env.*
+config.json
+*.local.json
