@@ -496,6 +496,19 @@ func commandPayloadGuidance() map[string]payloadGuidance {
 				"product_group_id_or_name": {Type: "string", Required: true, Description: "Product group id or name"},
 			},
 		},
+		"get investment-overview-summary-indicator": {
+			required: []string{"product_like_ids_or_names", "start_date", "end_date"},
+			optional: []string{"benchmark_id", "params"},
+			examples: []map[string]any{{"product_like_ids_or_names": []string{"demo"}, "start_date": "2026-01-01", "end_date": "2026-01-31"}},
+			parameters: map[string]parameterSchema{
+				"product_like_ids_or_names": {Type: "array<string>", Required: true, Description: "Product or product group ids/names"},
+				"start_date":                {Type: "string", Required: true, Description: "Start date"},
+				"end_date":                  {Type: "string", Required: true, Description: "End date"},
+				"benchmark_id":              {Type: "string", Required: false, Description: "Optional benchmark id"},
+				"params":                    {Type: "object", Required: false, Description: "Additional query parameters merged into the GET request"},
+			},
+			returns: "data[] contains investment overview summary indicator rows returned by /product_group_overview/indicators_v2",
+		},
 		"get permission-list": {
 			required: []string{"resource_type", "resource_id"},
 			optional: []string{"product_id_or_name", "product_group_id_or_name", "fields", "limit", "format"},

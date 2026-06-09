@@ -453,23 +453,103 @@ func TestIntegrationAdditionalAnalysisReadOnlyAPIs(t *testing.T) {
 	if ok && summary.Data == nil {
 		t.Fatalf("investment-overview-summary-indicator should return data, got nil")
 	}
+	if ok {
+		items, ok := summary.Data.([]any)
+		if !ok {
+			t.Fatalf("investment-overview-summary-indicator should return data[]: %#v", summary.Data)
+		}
+		if len(items) == 0 {
+			t.Fatalf("investment-overview-summary-indicator should return at least one row")
+		}
+		first, ok := items[0].(map[string]any)
+		if !ok {
+			t.Fatalf("investment-overview-summary-indicator data[0] should be object: %#v", items[0])
+		}
+		assertIntegrationFields(t, "investment-overview-summary-indicator documented top-level fields", first, []string{
+			"id", "name", "start_date", "net_value", "annual_twoside_turnover_rate", "period_acc_returns", "daily", "weekly", "monthly",
+		})
+		daily, ok := first["daily"].(map[string]any)
+		if !ok {
+			t.Fatalf("investment-overview-summary-indicator daily should be object: %#v", first["daily"])
+		}
+		assertIntegrationFields(t, "investment-overview-summary-indicator daily documented fields", daily, []string{
+			"alpha", "beta", "sharpe", "max_drawdown", "information_ratio", "annual_volatility", "annual_tracking_error",
+			"geometric_excess_max_drawdown", "geometric_excess_annual_return", "arithmetic_excess_annual_return",
+			"net_cash_in", "period_pnl", "equity_net_exposure", "period_buy_amount", "period_sell_amount", "cash", "total_equity",
+			"cn_stock_market_value", "hk_stock_market_value", "max_drawdown_period", "max_drawdown_recovery_days",
+			"total_annual_returns", "geometric_excess_max_drawdown_period", "geometric_excess_max_drawdown_recovery_days",
+		})
+		for _, frequency := range []string{"weekly", "monthly"} {
+			frequencyData, ok := first[frequency].(map[string]any)
+			if !ok {
+				t.Fatalf("investment-overview-summary-indicator %s should be object: %#v", frequency, first[frequency])
+			}
+			assertIntegrationFields(t, "investment-overview-summary-indicator "+frequency+" documented fields", frequencyData, []string{
+				"alpha", "beta", "sharpe", "max_drawdown", "information_ratio", "annual_volatility", "annual_tracking_error",
+				"geometric_excess_max_drawdown", "geometric_excess_annual_return", "arithmetic_excess_annual_return", "total_annual_returns",
+			})
+		}
+	}
 	assetCapitalSize, ok := runIntegrationOptionalAnyCommand(t, []string{"get", "investment-overview-asset-capital-size", "--payload", integrationPayload(t, cloneTestMap(basePayload))})
 	if ok && assetCapitalSize.Data == nil {
 		t.Fatalf("investment-overview-asset-capital-size should return data, got nil")
+	}
+	if ok {
+		items, ok := assetCapitalSize.Data.([]any)
+		if !ok {
+			t.Fatalf("investment-overview-asset-capital-size should return data[]: %#v", assetCapitalSize.Data)
+		}
+		if len(items) > 0 {
+			first, ok := items[0].(map[string]any)
+			if !ok {
+				t.Fatalf("investment-overview-asset-capital-size data[0] should be object: %#v", items[0])
+			}
+			assertIntegrationFields(t, "investment-overview-asset-capital-size documented fields", first, []string{"date", "asset_classes"})
+			assetClasses, ok := first["asset_classes"].([]any)
+			if !ok {
+				t.Fatalf("investment-overview-asset-capital-size asset_classes should be array: %#v", first["asset_classes"])
+			}
+			if len(assetClasses) > 0 {
+				firstClass, ok := assetClasses[0].(map[string]any)
+				if !ok {
+					t.Fatalf("investment-overview-asset-capital-size asset_classes[0] should be object: %#v", assetClasses[0])
+				}
+				assertIntegrationFields(t, "investment-overview-asset-capital-size asset class documented fields", firstClass, []string{"asset_class_name", "value"})
+			}
+		}
 	}
 	assetAllocation, ok := runIntegrationOptionalAnyCommand(t, []string{"get", "investment-overview-asset-allocation", "--payload", integrationPayload(t, cloneTestMap(basePayload))})
 	if ok && assetAllocation.Data == nil {
 		t.Fatalf("investment-overview-asset-allocation should return data, got nil")
 	}
+	if ok {
+		if _, ok := assetAllocation.Data.(map[string]any); !ok {
+			t.Fatalf("investment-overview-asset-allocation should return object: %#v", assetAllocation.Data)
+		}
+	}
 	returnsCorrelation, ok := runIntegrationOptionalAnyCommand(t, []string{"get", "investment-overview-returns-correlation", "--payload", integrationPayload(t, cloneTestMap(basePayload))})
 	if ok && returnsCorrelation.Data == nil {
 		t.Fatalf("investment-overview-returns-correlation should return data, got nil")
+	}
+	if ok {
+		matrix, ok := returnsCorrelation.Data.(map[string]any)
+		if !ok {
+			t.Fatalf("investment-overview-returns-correlation should return object: %#v", returnsCorrelation.Data)
+		}
+		assertIntegrationFields(t, "investment-overview-returns-correlation documented fields", matrix, []string{"daily", "weekly"})
 	}
 	excessPayload := cloneTestMap(basePayload)
 	excessPayload["benchmark_id"] = benchmarkID
 	excessCorrelation, ok := runIntegrationOptionalAnyCommand(t, []string{"get", "investment-overview-excess-correlation", "--payload", integrationPayload(t, excessPayload)})
 	if ok && excessCorrelation.Data == nil {
 		t.Fatalf("investment-overview-excess-correlation should return data, got nil")
+	}
+	if ok {
+		matrix, ok := excessCorrelation.Data.(map[string]any)
+		if !ok {
+			t.Fatalf("investment-overview-excess-correlation should return object: %#v", excessCorrelation.Data)
+		}
+		assertIntegrationFields(t, "investment-overview-excess-correlation documented fields", matrix, []string{"daily", "weekly"})
 	}
 
 	attributionPayload := map[string]any{
@@ -478,8 +558,98 @@ func TestIntegrationAdditionalAnalysisReadOnlyAPIs(t *testing.T) {
 		"end_date":                endDate,
 		"benchmark_id":            benchmarkID,
 	}
-	runIntegrationOptionalAnyCommand(t, []string{"get", "performance-attribution", "--payload", integrationPayload(t, cloneTestMap(attributionPayload))})
-	runIntegrationOptionalAnyCommand(t, []string{"get", "returns-decomposition", "--payload", integrationPayload(t, attributionPayload)})
+	attribution, ok := runIntegrationOptionalAnyCommand(t, []string{"get", "performance-attribution", "--payload", integrationPayload(t, cloneTestMap(attributionPayload))})
+	if ok {
+		assertIntegrationBusinessResult(t, "performance-attribution", attribution.Data)
+	}
+	decomposition, ok := runIntegrationOptionalAnyCommand(t, []string{"get", "returns-decomposition", "--payload", integrationPayload(t, attributionPayload)})
+	if ok {
+		assertIntegrationBusinessResult(t, "returns-decomposition", decomposition.Data)
+	}
+}
+
+func TestIntegrationAnalysisExtendedScenarios(t *testing.T) {
+	setupIntegrationSession(t)
+
+	candidates := integrationProductCandidates(t)
+	if len(candidates) == 0 {
+		t.Skip("extended analysis checks skipped because no products were returned")
+	}
+	longStartDate := "2025-01-01"
+	endDate := defaultIntegrationAnalysisEndDate
+	benchmarkID := defaultIntegrationBenchmarkID
+
+	conditionalIndicatorFields := []string{"subscribe_units", "subscribe_amount", "redeem_units", "redeem_amount"}
+	indicatorFields := append([]string{
+		"unit_net_value", "adjusted_net_value", "total_assets", "total_equity", "daily_pnl",
+		"equity_net_exposure", "cash", "buy_amount", "sell_amount", "net_cash_in",
+		"risk_exposure", "net_risk_exposure", "weekly_pnl", "leverage_ratio",
+	}, conditionalIndicatorFields...)
+	foundConditionalIndicator := false
+	for _, productID := range candidates {
+		series, ok := runIntegrationOptionalCommand(t, []string{"get", "indicator-series", "--payload", integrationPayload(t, map[string]any{
+			"product_like_id_or_name": productID,
+			"start_date":              longStartDate,
+			"end_date":                endDate,
+			"indicators":              indicatorFields,
+		})})
+		if !ok {
+			continue
+		}
+		for _, field := range conditionalIndicatorFields {
+			value, ok := series.Data[field]
+			if !ok {
+				continue
+			}
+			if _, ok := value.(map[string]any); !ok {
+				t.Fatalf("get indicator-series conditional field %s should be date map when returned: %#v", field, value)
+			}
+			foundConditionalIndicator = true
+		}
+		if foundConditionalIndicator {
+			t.Logf("indicator-series conditional申赎字段 checks using product %s", productID)
+			break
+		}
+	}
+	if !foundConditionalIndicator {
+		t.Log("indicator-series conditional申赎字段 checks skipped because no candidate product returned subscribe/redeem fields")
+	}
+
+	if len(candidates) < 2 {
+		t.Skip("multi-product overview checks skipped because fewer than two products were returned")
+	}
+	productIDs := candidates[:2]
+	multiPayload := map[string]any{
+		"product_like_ids_or_names": productIDs,
+		"start_date":                longStartDate,
+		"end_date":                  endDate,
+	}
+	monthlyCorrelationPayload := cloneTestMap(multiPayload)
+	returnsCorrelation, ok := runIntegrationOptionalAnyCommand(t, []string{"get", "investment-overview-returns-correlation", "--payload", integrationPayload(t, monthlyCorrelationPayload)})
+	if ok {
+		assertIntegrationCorrelationFrequencies(t, "investment-overview-returns-correlation long range", returnsCorrelation.Data, []string{"daily", "weekly", "monthly"})
+	}
+	excessPayload := cloneTestMap(multiPayload)
+	excessPayload["benchmark_id"] = benchmarkID
+	excessCorrelation, ok := runIntegrationOptionalAnyCommand(t, []string{"get", "investment-overview-excess-correlation", "--payload", integrationPayload(t, excessPayload)})
+	if ok {
+		assertIntegrationCorrelationFrequencies(t, "investment-overview-excess-correlation long range", excessCorrelation.Data, []string{"daily", "weekly", "monthly"})
+	}
+	returnsPayload := cloneTestMap(multiPayload)
+	returnsPayload["benchmark_id"] = benchmarkID
+	returnsSeries, ok := runIntegrationOptionalArrayCommand(t, []string{"get", "investment-overview-returns-series", "--payload", integrationPayload(t, returnsPayload)})
+	if ok {
+		if len(returnsSeries.Data) < len(productIDs) {
+			t.Fatalf("investment-overview-returns-series multi-product should return at least %d items: %#v", len(productIDs), returnsSeries.Data)
+		}
+		for _, item := range returnsSeries.Data {
+			row, ok := item.(map[string]any)
+			if !ok {
+				t.Fatalf("investment-overview-returns-series item should be object: %#v", item)
+			}
+			assertIntegrationFields(t, "investment-overview-returns-series multi-product item", row, []string{"id", "name", "type", "daily", "weekly", "monthly"})
+		}
+	}
 }
 
 func TestIntegrationReconciliationAndReportReadOnlyAPIs(t *testing.T) {
@@ -767,22 +937,51 @@ func testIntegrationAnalysisAPIs(t *testing.T) {
 			t.Fatalf("get indicator should return data.%s object: %#v", field, indicator.Data)
 		}
 	}
+	documentedRiskFields := []string{
+		"total_returns", "total_annual_returns", "total_arithmetic_excess_return", "total_geometric_excess_return",
+		"arithmetic_excess_annual_return", "geometric_excess_annual_return", "annual_simple_interest",
+		"annual_volatility", "excess_annual_volatility", "annual_tracking_error", "annual_downside_risk",
+		"alpha", "absolute_alpha", "beta", "sharpe", "absolute_sharpe", "excess_sharpe", "information_ratio",
+		"max_drawdown", "geometric_excess_max_drawdown", "calmar_ratio",
+	}
+	for _, frequency := range []string{"daily_risk", "weekly_risk", "monthly_risk"} {
+		risk := indicator.Data[frequency].(map[string]any)
+		assertIntegrationFields(t, "get indicator "+frequency+" documented fields", risk, documentedRiskFields)
+	}
+	if _, ok := indicator.Data["last_unit_net_value"]; !ok {
+		t.Fatalf("get indicator should return documented last_unit_net_value: %#v", indicator.Data)
+	}
 	if _, ok := indicator.Data["date"]; ok {
 		t.Fatalf("get indicator should not expose a top-level date field: %#v", indicator.Data)
 	}
 
+	documentedIndicatorSeriesFields := []string{
+		"unit_net_value", "adjusted_net_value", "total_assets", "total_equity", "daily_pnl",
+		"equity_net_exposure", "cash", "buy_amount", "sell_amount", "net_cash_in",
+		"risk_exposure", "net_risk_exposure", "weekly_pnl", "leverage_ratio",
+	}
 	series := runIntegrationCommand(
 		t,
 		[]string{"get", "indicator-series", "--payload", integrationPayload(t, map[string]any{
 			"product_like_id_or_name": productID,
 			"start_date":              startDate,
 			"end_date":                endDate,
-			"indicators":              []string{"total_equity", "daily_pnl"},
+			"indicators":              documentedIndicatorSeriesFields,
 		})},
 	)
-	for _, field := range []string{"total_equity", "daily_pnl"} {
-		if _, ok := series.Data[field].(map[string]any); !ok {
-			t.Fatalf("get indicator-series should return data.%s date map: %#v", field, series.Data)
+	for _, field := range documentedIndicatorSeriesFields {
+		value, ok := series.Data[field]
+		if !ok {
+			t.Fatalf("get indicator-series should return documented field %s: %#v", field, series.Data)
+		}
+		if field == "weekly_pnl" {
+			if _, ok := value.([]any); !ok {
+				t.Fatalf("get indicator-series should return data.%s array: %#v", field, value)
+			}
+			continue
+		}
+		if _, ok := value.(map[string]any); !ok {
+			t.Fatalf("get indicator-series should return data.%s date map: %#v", field, value)
 		}
 	}
 
@@ -807,6 +1006,35 @@ func testIntegrationAnalysisAPIs(t *testing.T) {
 			t.Fatalf("investment-overview-returns-series item missing %s: %#v", field, first)
 		}
 	}
+	dailyReturns, ok := first["daily"].([]any)
+	if !ok {
+		t.Fatalf("investment-overview-returns-series daily should be array: %#v", first["daily"])
+	}
+	if len(dailyReturns) > 0 {
+		firstDaily, ok := dailyReturns[0].(map[string]any)
+		if !ok {
+			t.Fatalf("investment-overview-returns-series daily[0] should be object: %#v", dailyReturns[0])
+		}
+		assertIntegrationFields(t, "investment-overview-returns-series daily documented fields", firstDaily, []string{
+			"date", "daily_returns", "cumulative_returns",
+		})
+	}
+	for _, frequency := range []string{"weekly", "monthly"} {
+		items, ok := first[frequency].([]any)
+		if !ok {
+			t.Fatalf("investment-overview-returns-series %s should be array: %#v", frequency, first[frequency])
+		}
+		if len(items) == 0 {
+			continue
+		}
+		item, ok := items[0].(map[string]any)
+		if !ok {
+			t.Fatalf("investment-overview-returns-series %s[0] should be object: %#v", frequency, items[0])
+		}
+		assertIntegrationFields(t, "investment-overview-returns-series "+frequency+" documented fields", item, []string{
+			"date", "cumulative_returns",
+		})
+	}
 	for _, field := range []string{"task_id", "status", "progress"} {
 		if _, ok := first[field]; ok {
 			t.Fatalf("investment-overview-returns-series should expose business fields, not task field %s: %#v", field, first)
@@ -830,6 +1058,27 @@ func testIntegrationAnalysisAPIs(t *testing.T) {
 	assertIntegrationFields(t, "trading-analysis documented fields", tradingDetail, []string{
 		"prev_adjusted_price_series", "position_quantity_series", "pnl_series", "buy_points", "sell_points",
 	})
+	if priceSeries, ok := tradingDetail["prev_adjusted_price_series"].([]any); ok && len(priceSeries) > 0 {
+		firstPrice, ok := priceSeries[0].(map[string]any)
+		if !ok {
+			t.Fatalf("trading-analysis prev_adjusted_price_series[0] should be object: %#v", priceSeries[0])
+		}
+		assertIntegrationFields(t, "trading-analysis price series documented fields", firstPrice, []string{"date", "price"})
+	}
+	if quantitySeries, ok := tradingDetail["position_quantity_series"].([]any); ok && len(quantitySeries) > 0 {
+		firstQuantity, ok := quantitySeries[0].(map[string]any)
+		if !ok {
+			t.Fatalf("trading-analysis position_quantity_series[0] should be object: %#v", quantitySeries[0])
+		}
+		assertIntegrationFields(t, "trading-analysis quantity series documented fields", firstQuantity, []string{"date", "quantity"})
+	}
+	if pnlSeries, ok := tradingDetail["pnl_series"].([]any); ok && len(pnlSeries) > 0 {
+		firstPnl, ok := pnlSeries[0].(map[string]any)
+		if !ok {
+			t.Fatalf("trading-analysis pnl_series[0] should be object: %#v", pnlSeries[0])
+		}
+		assertIntegrationFields(t, "trading-analysis pnl series documented fields", firstPnl, []string{"date", "pnl"})
+	}
 }
 
 func integrationProductID(t *testing.T) string {
@@ -1497,6 +1746,37 @@ func assertIntegrationNoFields(t *testing.T, label string, object map[string]any
 	for _, field := range fields {
 		if _, ok := object[field]; ok {
 			t.Fatalf("%s should not expose field %q: %#v", label, field, object)
+		}
+	}
+}
+
+func assertIntegrationBusinessResult(t *testing.T, label string, data any) {
+	t.Helper()
+	if data == nil {
+		t.Fatalf("%s should return business data, got nil", label)
+	}
+	if object, ok := data.(map[string]any); ok {
+		for _, field := range []string{"task_id", "status", "progress"} {
+			if _, ok := object[field]; ok {
+				t.Fatalf("%s should expose business data, not task field %s: %#v", label, field, object)
+			}
+		}
+	}
+}
+
+func assertIntegrationCorrelationFrequencies(t *testing.T, label string, data any, frequencies []string) {
+	t.Helper()
+	matrix, ok := data.(map[string]any)
+	if !ok {
+		t.Fatalf("%s should return object: %#v", label, data)
+	}
+	for _, frequency := range frequencies {
+		value, ok := matrix[frequency]
+		if !ok {
+			t.Fatalf("%s missing %s matrix: %#v", label, frequency, matrix)
+		}
+		if _, ok := value.(map[string]any); !ok {
+			t.Fatalf("%s %s matrix should be object: %#v", label, frequency, value)
 		}
 	}
 }

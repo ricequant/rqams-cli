@@ -64,9 +64,32 @@ Payload:
 | `product_like_id_or_name` | string | 是 | 产品或产品组 ID/名称 |
 | `start_date` | string/date | 否 | 起始日期 |
 | `end_date` | string/date | 否 | 结束日期 |
-| `indicators` | string[]/string | 否 | 指标名列表，例如 `total_equity`、`daily_pnl` |
+| `indicators` | string[]/string | 否 | 指标名列表；可用指标见下表 |
 
-返回：`data` 为指标序列对象，键为指标名，值为按日期索引的对象，例如 `data.total_equity["2026-01-01"]`。
+可用指标：
+
+| 指标名 | 返回值类型 | 说明 | 适用对象 |
+| --- | --- | --- | --- |
+| `unit_net_value` | date map<number/null> | 单位净值 | 产品、产品组 |
+| `adjusted_net_value` | date map<number/null> | 累计净值 | 产品、产品组 |
+| `total_assets` | date map<number/null> | 总资产 | 产品、产品组 |
+| `total_equity` | date map<number/null> | 净资产 | 产品、产品组 |
+| `daily_pnl` | date map<number/null> | 当日盈亏 | 产品、产品组 |
+| `equity_net_exposure` | date map<number/null> | 权益净敞口 | 产品、产品组 |
+| `cash` | date map<number/null> | 现金 | 产品、产品组 |
+| `buy_amount` | date map<number/null> | 买入金额 | 产品、产品组 |
+| `sell_amount` | date map<number/null> | 卖出金额 | 产品、产品组 |
+| `net_cash_in` | date map<number/null> | 净投入 | 产品、产品组 |
+| `subscribe_units` | date map<number/null> | 申购份额；有申购数据时返回 | 产品、产品组 |
+| `subscribe_amount` | date map<number/null> | 申购金额；有申购数据时返回 | 产品、产品组 |
+| `redeem_units` | date map<number/null> | 赎回份额；有赎回数据时返回 | 产品、产品组 |
+| `redeem_amount` | date map<number/null> | 赎回金额；有赎回数据时返回 | 产品、产品组 |
+| `risk_exposure` | date map<number/null> | 风险总敞口 | 产品、产品组 |
+| `net_risk_exposure` | date map<number/null> | 风险净敞口 | 产品、产品组 |
+| `weekly_pnl` | array<object> | 周度收益，按年、月、周分层 | 产品、产品组 |
+| `leverage_ratio` | date map<number/null> | 杠杆率 | 产品 |
+
+返回：`data` 为指标序列对象，键为指标名。除 `weekly_pnl` 外，值为按日期索引的对象，例如 `data.total_equity["2026-01-01"]`；`weekly_pnl` 返回按年、月、周分层的数组。
 
 示例：
 
@@ -85,7 +108,8 @@ Payload:
 | `product_like_ids_or_names` | string[] | 是 | 产品或产品组 ID/名称列表 |
 | `start_date` | string/date | 是 | 起始日期 |
 | `end_date` | string/date | 是 | 结束日期 |
-| `params` | object | 否 | 额外请求参数 |
+| `benchmark_id` | string | 否 | 基准 ID |
+| `params` | object | 否 | 额外查询参数 |
 
 返回：`data[]` 为概览指标项。
 
@@ -98,9 +122,59 @@ Payload:
 | `net_value` | number/null | 区间结束日净值 |
 | `annual_twoside_turnover_rate` | number/null | 年化双边换手率 |
 | `period_acc_returns` | number/null | 区间累计收益 |
-| `daily` | object | 日频指标对象 |
-| `weekly` | object | 周频风险指标 |
-| `monthly` | object | 月频风险指标 |
+| `daily` | object | 日频业绩指标和资产负债指标 |
+| `weekly` | object | 周频业绩指标 |
+| `monthly` | object | 月频业绩指标 |
+
+`daily` 字段包含业绩指标和资产负债指标：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `daily.alpha` | number/null | Alpha |
+| `daily.beta` | number/null | Beta |
+| `daily.sharpe` | number/null | 夏普比率 |
+| `daily.max_drawdown` | number/null | 最大回撤 |
+| `daily.information_ratio` | number/null | 信息比率 |
+| `daily.annual_volatility` | number/null | 年化波动率 |
+| `daily.annual_tracking_error` | number/null | 年化跟踪误差 |
+| `daily.geometric_excess_max_drawdown` | number/null | 几何超额最大回撤 |
+| `daily.geometric_excess_annual_return` | number/null | 几何超额年化收益 |
+| `daily.arithmetic_excess_annual_return` | number/null | 算术超额年化收益 |
+| `daily.net_cash_in` | number/null | 净投入 |
+| `daily.period_pnl` | number/null | 区间盈亏 |
+| `daily.equity_net_exposure` | number/null | 权益净敞口 |
+| `daily.period_buy_amount` | number/null | 区间买入金额 |
+| `daily.period_sell_amount` | number/null | 区间卖出金额 |
+| `daily.cash` | number/null | 现金余额 |
+| `daily.total_equity` | number/null | 总权益 |
+| `daily.cn_stock_market_value` | number/null | A 股市值 |
+| `daily.hk_stock_market_value` | number/null | 港股市值 |
+| `daily.max_drawdown_period` | string/null | 最大回撤时间段 |
+| `daily.max_drawdown_recovery_days` | string/null | 最大回撤修复 |
+| `daily.total_annual_returns` | string/null | 期间年化收益 |
+| `daily.geometric_excess_max_drawdown_period` | string/null | 超额最大回撤时间段 |
+| `daily.geometric_excess_max_drawdown_recovery_days` | string/null | 超额回撤修复 |
+
+`weekly` 和 `monthly` 字段只包含业绩指标子集，不返回 `daily` 中的资产负债、区间交易和回撤时间段字段：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `alpha` | number/null | Alpha |
+| `beta` | number/null | Beta |
+| `sharpe` | number/null | 夏普比率 |
+| `max_drawdown` | number/null | 最大回撤 |
+| `information_ratio` | number/null | 信息比率 |
+| `annual_volatility` | number/null | 年化波动率 |
+| `annual_tracking_error` | number/null | 年化跟踪误差 |
+| `geometric_excess_max_drawdown` | number/null | 几何超额最大回撤 |
+| `geometric_excess_annual_return` | number/null | 几何超额年化收益 |
+| `arithmetic_excess_annual_return` | number/null | 算术超额年化收益 |
+| `total_annual_returns` | string/null | 期间年化收益 |
+
+示例：
+```powershell
+rqamsc get investment-overview-summary-indicator --payload '{"product_like_ids_or_names":["demo"],"start_date":"2026-01-01","end_date":"2026-01-31"}'
+```
 
 ## `get investment-overview-returns-series`
 
@@ -113,7 +187,7 @@ Payload:
 | `product_like_ids_or_names` | string[] | 是 | 产品或产品组 ID/名称列表 |
 | `start_date` | string/date | 是 | 起始日期 |
 | `end_date` | string/date | 是 | 结束日期 |
-| `benchmark_id` | string | 是 | 基准 ID；也可使用 `benchmark` |
+| `benchmark_id` | string | 是 | 基准 ID |
 | `params` | object | 否 | 额外请求体字段 |
 
 返回：`data[]` 为收益序列项。
@@ -129,9 +203,7 @@ Payload:
 | `daily[].date` | string/date | 日期 |
 | `daily[].daily_returns` | number | 当期收益 |
 | `daily[].cumulative_returns` | number | 累计收益 |
-| `daily[].geometric_excess_cumulative_returns` | number | 几何超额累计收益 |
-| `daily[].excess_earnings` | number | 超额收益 |
-| `weekly[]`、`monthly[]` 单条记录 | object | 包含 `date`、`cumulative_returns`、`geometric_excess_cumulative_returns` |
+| `weekly[]`、`monthly[]` 单条记录 | object | 包含 `date`、`cumulative_returns` |
 
 示例：
 
@@ -192,7 +264,7 @@ Payload:
 | `product_like_ids_or_names` | string[] | 是 | 产品或产品组 ID/名称列表 |
 | `start_date` | string/date | 是 | 起始日期 |
 | `end_date` | string/date | 是 | 结束日期 |
-| `benchmark_id` | string | 是 | 基准 ID；也可使用 `benchmark` |
+| `benchmark_id` | string | 是 | 基准 ID |
 | `params` | object | 否 | 额外请求体字段 |
 
 返回：`data` 为超额收益相关性矩阵。
@@ -201,7 +273,7 @@ Payload:
 | --- | --- | --- |
 | `daily` | object | 日频相关性矩阵 |
 | `weekly` | object | 周频相关性矩阵 |
-| `monthly` | object | 月频相关性矩阵 |
+| `monthly` | object | 月频相关性矩阵；长区间或有月频样本时返回 |
 | `<频率>.<行名称>.<列名称>` | number | 两个产品或产品组的相关系数 |
 
 ## `get investment-overview-returns-correlation`
@@ -223,7 +295,7 @@ Payload:
 | --- | --- | --- |
 | `daily` | object | 日频相关性矩阵 |
 | `weekly` | object | 周频相关性矩阵 |
-| `monthly` | object | 月频相关性矩阵 |
+| `monthly` | object | 月频相关性矩阵；长区间或有月频样本时返回 |
 | `<频率>.<行名称>.<列名称>` | number | 两个产品或产品组的相关系数 |
 
 ## `get performance-attribution`
@@ -237,7 +309,7 @@ Payload:
 | `product_like_id_or_name` | string | 是 | 产品或产品组 ID/名称 |
 | `start_date` | string/date | 是 | 起始日期 |
 | `end_date` | string/date | 是 | 结束日期 |
-| `benchmark_id` | string | 否 | 基准 ID；也可使用 `benchmark` |
+| `benchmark_id` | string | 否 | 基准 ID |
 | `template` | string | 否 | 归因模板；默认 `equity/brinson` |
 | `industry_standard` | string | 否 | 行业分类；默认 `sws` |
 | `drilldown` | boolean | 否 | 是否下钻 |
@@ -305,7 +377,6 @@ Payload:
 | `position_quantity_series[].quantity` | number | 持仓数量 |
 | `pnl_series[]` | array | 盈亏序列 |
 | `pnl_series[].date` | string/date | 日期 |
-| `pnl_series[].daily_pnl` | number | 当日盈亏 |
 | `pnl_series[].pnl` | number | 区间累计盈亏 |
 | `buy_points[]` | string/date[] | 买入日期列表 |
 | `sell_points[]` | string/date[] | 卖出日期列表 |
