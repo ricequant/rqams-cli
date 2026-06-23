@@ -1,6 +1,6 @@
 {
   "name": "@ricequant2026/rqams-cli",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "RQAMS CLI for AI agents",
   "bin": {
     "rqamsc": "bin/rqamsc.js"
@@ -12,10 +12,10 @@
     "README.md"
   ],
   "optionalDependencies": {
-    "@ricequant2026/rqams-cli-linux-x64": "0.0.1",
-    "@ricequant2026/rqams-cli-darwin-x64": "0.0.1",
-    "@ricequant2026/rqams-cli-darwin-arm64": "0.0.1",
-    "@ricequant2026/rqams-cli-win32-x64": "0.0.1"
+    "@ricequant2026/rqams-cli-linux-x64": "0.0.2",
+    "@ricequant2026/rqams-cli-darwin-x64": "0.0.2",
+    "@ricequant2026/rqams-cli-darwin-arm64": "0.0.2",
+    "@ricequant2026/rqams-cli-win32-x64": "0.0.2"
   },
   "scripts": {
     "build:npm": "node scripts/npm/build-packages.js",

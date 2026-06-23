@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"io"
@@ -25,7 +26,7 @@ const (
 )
 
 // Version is the package version. Release builds may override this with ldflags.
-var Version = "0.0.1"
+var Version = "0.0.2"
 
 type handler func(context) (any, map[string]any, error)
 
@@ -76,6 +77,9 @@ func Run(args []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) int
 	}
 	if isSchemaCommand(command) {
 		return runSchemaCommand(command, payloadArg, stdin, stdout, stderr)
+	}
+	if command == "setup" && strings.TrimSpace(payloadArg) == "" {
+		return runInteractiveSetup(stdin, stdout, stderr)
 	}
 
 	doc, err := payload.Parse(payloadArg, stdin)
@@ -158,7 +162,7 @@ func Run(args []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) int
 var errAuthRefreshNotNeeded = errors.New("auth refresh not needed")
 
 func refreshAuthIfNeeded(command string, cfg config.Config) (config.Config, error) {
-	if command == "auth" || strings.TrimSpace(cfg.SID) != "" {
+	if command == "auth" || command == "setup" || strings.TrimSpace(cfg.SID) != "" {
 		return cfg, nil
 	}
 	if !hasStoredPassword(cfg) {
@@ -168,7 +172,7 @@ func refreshAuthIfNeeded(command string, cfg config.Config) (config.Config, erro
 }
 
 func refreshAuthAfterFailure(command string, cfg config.Config, cause error) (config.Config, error) {
-	if command == "auth" || !isAuthExpired(cause) || !hasStoredPassword(cfg) {
+	if command == "auth" || command == "setup" || !isAuthExpired(cause) || !hasStoredPassword(cfg) {
 		return cfg, errAuthRefreshNotNeeded
 	}
 	return refreshAuth(cfg)
@@ -226,11 +230,13 @@ func helpText() string {
 
 Usage:
   rqamsc <verb> <resource> --payload <json|@file|->
+  rqamsc setup
   rqamsc auth --payload '{"base_url":"https://www.ricequant.com","username":"...","password":"..."}'
   rqamsc schema list
   rqamsc schema get --payload '{"command":"get product-list"}'
 
 Available Utility Commands:
+  setup           Interactively configure login and workspace
   schema list     List supported commands and route metadata
   schema get      Show payload guidance for one command
   help            Show this help message
@@ -327,6 +333,9 @@ func schemaGet(doc map[string]any) (map[string]any, error) {
 		if guidance.returns != "" {
 			item["returns"] = guidance.returns
 		}
+		if guidance.template != nil {
+			item["default_payload_template"] = guidance.template
+		}
 	} else {
 		item["required_payload"] = []string{}
 		item["optional_payload"] = []string{"raw endpoint payload; see docs/rqams_cli_manual.md"}
@@ -384,6 +393,7 @@ type payloadGuidance struct {
 	examples   []map[string]any
 	parameters map[string]parameterSchema
 	returns    string
+	template   map[string]any
 }
 
 type parameterSchema struct {
@@ -397,13 +407,26 @@ type parameterSchema struct {
 
 func commandPayloadGuidance() map[string]payloadGuidance {
 	return map[string]payloadGuidance{
+		"setup": {
+			required: []string{"base_url", "username", "password"},
+			optional: []string{"workspace_name_or_id", "profile"},
+			examples: []map[string]any{{"base_url": "https://www.ricequant.com", "username": "...", "password": "...", "workspace_name_or_id": "default"}},
+			parameters: map[string]parameterSchema{
+				"base_url":             {Type: "string", Required: true, Description: "AMS base URL, for example https://www.ricequant.com"},
+				"username":             {Type: "string", Required: true, Description: "RQAMS username; 11-digit mainland China mobile numbers are saved and sent with +86"},
+				"password":             {Type: "string", Required: true, Description: "RQAMS password"},
+				"workspace_name_or_id": {Type: "string", Required: false, Description: "Workspace id or display name to persist locally; omitted selects the first workspace in non-interactive setup"},
+				"profile":              {Type: "string", Required: false, Description: "Optional local config profile for isolating accounts or workspaces"},
+			},
+			returns: "data.authenticated, data.user_id, data.workspace_id, data.workspace_name, and saved local session config",
+		},
 		"auth": {
 			required: []string{"base_url", "username", "password"},
 			optional: []string{"profile"},
 			examples: []map[string]any{{"base_url": "https://www.ricequant.com", "username": "...", "password": "...", "profile": "default"}},
 			parameters: map[string]parameterSchema{
 				"base_url": {Type: "string", Required: true, Description: "AMS base URL, for example https://www.ricequant.com"},
-				"username": {Type: "string", Required: true, Description: "RQAMS username"},
+				"username": {Type: "string", Required: true, Description: "RQAMS username; 11-digit mainland China mobile numbers are saved and sent with +86"},
 				"password": {Type: "string", Required: true, Description: "RQAMS password"},
 				"profile":  {Type: "string", Required: false, Description: "Optional local config profile for isolating accounts or workspaces"},
 			},
@@ -433,6 +456,20 @@ func commandPayloadGuidance() map[string]payloadGuidance {
 			parameters: map[string]parameterSchema{},
 			returns:    "data.workspace_id, data.workspace_name, and data.display for the current local workspace",
 		},
+		"get trading-dates": {
+			required: []string{"type"},
+			optional: []string{"start_date", "end_date", "fmt", "limit", "format"},
+			examples: []map[string]any{{"type": "exchange", "start_date": "2026-01-01", "end_date": "2026-01-31", "fmt": "date"}},
+			parameters: map[string]parameterSchema{
+				"type":       {Type: "string", Required: true, Description: "Trading calendar type; currently only exchange is supported", Enum: []string{"exchange"}},
+				"start_date": {Type: "string", Required: false, Description: "Inclusive start date; server defaults to 2010-01-01"},
+				"end_date":   {Type: "string", Required: false, Description: "Inclusive end date; omitted returns all dates after start_date"},
+				"fmt":        {Type: "string", Required: false, Description: "Return format; date returns YYYY-MM-DD strings, timestamp returns timestamps", Default: "date", Enum: []string{"date", "timestamp"}},
+				"limit":      {Type: "integer", Required: false, Description: "Maximum number of dates returned by the CLI"},
+				"format":     {Type: "string", Required: false, Description: "Output format", Default: "json", Enum: []string{"json", "ndjson"}},
+			},
+			returns: "data[] is the trading calendar; strings when fmt=date, timestamps when fmt=timestamp",
+		},
 		"get product-list": {
 			required: []string{},
 			optional: []string{"fields", "limit", "raw", "format"},
@@ -457,7 +494,24 @@ func commandPayloadGuidance() map[string]payloadGuidance {
 		"insert product": {
 			required: []string{"top-level product fields"},
 			optional: []string{},
-			examples: []map[string]any{{"name": "demo", "start_date": "2026-01-01"}},
+			examples: []map[string]any{defaultProductCreateTemplate()},
+			parameters: map[string]parameterSchema{
+				"name":                {Type: "string", Required: true, Description: "Product name"},
+				"data_source":         {Type: "string", Required: true, Description: "Data source", Default: "trade_and_valuation_report", Enum: []string{"trade", "valuation_report", "trade_and_valuation_report"}},
+				"investment_category": {Type: "string", Required: true, Description: "Investment category", Default: "equity"},
+				"strategy_category":   {Type: "string", Required: true, Description: "Strategy category", Default: "stock_long"},
+				"benchmark":           {Type: "object", Required: true, Description: "Benchmark config", Default: map[string]any{"type": "index", "id": "000300.XSHG"}},
+				"calendar":            {Type: "string", Required: true, Description: "Calendar type", Default: "exchange", Enum: []string{"exchange", "natural"}},
+				"unit_policy":         {Type: "string", Required: false, Description: "Required for trade and trade_and_valuation_report products", Enum: []string{"auto_prev_unit_net_value", "manual"}},
+				"start_date":          {Type: "string", Required: false, Description: "Product start date; required when no initial valuation report is uploaded", Default: "2020-01-01"},
+				"report_name":         {Type: "string", Required: false, Description: "External report name; can match name"},
+				"full_name":           {Type: "string", Required: false, Description: "Product full name; can match name"},
+				"trading_start_date":  {Type: "string", Required: false, Description: "Trading start date; defaults to start_date", Default: "2020-01-01"},
+				"accounts":            {Type: "array<object>", Required: false, Description: "Account configs; default template includes one stock account"},
+				"fee_settings":        {Type: "object", Required: false, Description: "Fee settings; default template uses zero rates"},
+			},
+			template: defaultProductCreateTemplate(),
+			returns:  "data contains the server create result",
 		},
 		"update product": {
 			required: []string{"product_id_or_name", "update_fields"},
@@ -945,13 +999,13 @@ func ndjsonDataItems(data any) ([]any, error) {
 
 func parseArgs(args []string) (string, string, error) {
 	if len(args) < 1 {
-		return "", "", fmt.Errorf("usage: rqamsc auth --payload <json|@file|-> or rqamsc <verb> <resource> --payload <json|@file|->")
+		return "", "", fmt.Errorf("usage: rqamsc setup, rqamsc auth --payload <json|@file|->, or rqamsc <verb> <resource> --payload <json|@file|->")
 	}
 	command := args[0]
 	payloadStart := 1
-	if args[0] != "auth" {
+	if !isSingleWordCommand(args[0]) {
 		if len(args) < 2 {
-			return "", "", fmt.Errorf("usage: rqamsc auth --payload <json|@file|-> or rqamsc <verb> <resource> --payload <json|@file|->")
+			return "", "", fmt.Errorf("usage: rqamsc setup, rqamsc auth --payload <json|@file|->, or rqamsc <verb> <resource> --payload <json|@file|->")
 		}
 		command = args[0] + " " + args[1]
 		payloadStart = 2
@@ -970,8 +1024,17 @@ func parseArgs(args []string) (string, string, error) {
 	return command, payloadArg, nil
 }
 
+func isSingleWordCommand(command string) bool {
+	return command == "auth" || command == "setup"
+}
+
 func routes() map[string]route {
 	return map[string]route{
+		"setup": {
+			method: "POST",
+			path:   "login + v1/workspaces",
+			run:    openSetup,
+		},
 		"auth": {
 			method: "POST",
 			path:   "login",
@@ -1223,6 +1286,12 @@ func routes() map[string]route {
 			method: "POST",
 			path:   "customized_instruments:batch_delete",
 			run:    deleteCustomizedInstrument,
+		},
+		"get trading-dates": {
+			method: "GET",
+			path:   "market_data/trading_dates",
+			run:    getTradingDates,
+			ndjson: ndjsonDataItems,
 		},
 		"get customized-benchmark-list": {
 			method: "GET",
@@ -1481,6 +1550,24 @@ func productCreatePayload(doc map[string]any) map[string]any {
 		body[key] = value
 	}
 	return body
+}
+
+func defaultProductCreateTemplate() map[string]any {
+	return map[string]any{
+		"name":                "demo",
+		"report_name":         "demo",
+		"full_name":           "demo",
+		"start_date":          "2020-01-01",
+		"trading_start_date":  "2020-01-01",
+		"data_source":         "trade_and_valuation_report",
+		"investment_category": "equity",
+		"strategy_category":   "stock_long",
+		"benchmark":           map[string]any{"type": "index", "id": "000300.XSHG"},
+		"unit_policy":         "manual",
+		"calendar":            "exchange",
+		"accounts":            []map[string]any{{"name": "stock", "is_custodian": false, "account_number": "RQ0000000001", "broker": "ricequant"}},
+		"fee_settings":        map[string]any{"management_fee": 0, "custodian_fee": 0, "operation_fee": 0, "sales_and_service_fee": 0, "performance_pay": 0},
+	}
 }
 
 func getProductGroupList(ctx context) (any, map[string]any, error) {
@@ -2248,6 +2335,17 @@ func deleteCustomizedInstrument(ctx context) (any, map[string]any, error) {
 	}
 	data, err := ctx.client.AMSRequest("POST", "customized_instruments:batch_delete", ids)
 	return data, map[string]any{"resolved_path": "customized_instruments:batch_delete"}, err
+}
+
+func getTradingDates(ctx context) (any, map[string]any, error) {
+	if _, err := payload.String(ctx.payload, "type"); err != nil {
+		return nil, nil, err
+	}
+	path := "market_data/trading_dates"
+	params := queryParams(ctx.payload, []string{"type", "start_date", "end_date", "fmt"})
+	data, err := ctx.client.AMSRequestWithParams("GET", path, nil, params)
+	limitTopLevelList(&data, intValue(ctx.payload["limit"]))
+	return data, queryMeta(params, path), err
 }
 
 func getCustomizedBenchmarkList(ctx context) (any, map[string]any, error) {
@@ -4437,38 +4535,10 @@ func appendAny(value any, item any) []any {
 
 func openAuth(ctx context) (any, map[string]any, error) {
 	cfg := configWithPayloadProfile(ctx)
-	baseURL, err := payload.String(ctx.payload, "base_url")
-	if err != nil {
-		baseURL = cfg.BaseURL
-	}
-	username, err := payload.String(ctx.payload, "username")
-	if err != nil {
-		username = cfg.Username
-	}
-	if strings.TrimSpace(baseURL) == "" {
-		return nil, nil, fmt.Errorf("payload missing required field %q", "base_url")
-	}
-	if strings.TrimSpace(username) == "" {
-		return nil, nil, fmt.Errorf("payload missing required field %q", "username")
-	}
-	password, err := payload.String(ctx.payload, "password")
-	if err != nil {
-		password = cfg.Password
-	}
-	if strings.TrimSpace(password) == "" {
-		return nil, nil, fmt.Errorf("payload missing required field %q", "password")
-	}
-	cfg.BaseURL = baseURL
-	cfg.Username = username
-	cfg.Password = password
-	cfg.Plaintext = true
-	loginClient := client.New(cfg)
-	login, err := loginClient.Login(username, password)
+	cfg, login, err := loginWithPayloadConfig(cfg, ctx.payload)
 	if err != nil {
 		return nil, nil, err
 	}
-	cfg.UserID = login.UserID
-	cfg.SID = login.SID
 	if err := config.Save(cfg); err != nil {
 		return nil, nil, err
 	}
@@ -4479,6 +4549,230 @@ func openAuth(ctx context) (any, map[string]any, error) {
 		"config_saved":  true,
 		"plaintext":     cfg.Plaintext,
 	}, nil, nil
+}
+
+func openSetup(ctx context) (any, map[string]any, error) {
+	cfg := configWithPayloadProfile(ctx)
+	cfg, login, err := loginWithPayloadConfig(cfg, ctx.payload)
+	if err != nil {
+		return nil, nil, err
+	}
+	workspaceClient := client.New(cfg)
+	workspaceNameOrID := firstString(ctx.payload["workspace_name_or_id"], ctx.payload["workspace_id"], ctx.payload["workspace"])
+	workspaceID := ""
+	workspaceName := ""
+	if workspaceNameOrID != "" {
+		workspaceID, workspaceName, err = resolveWorkspace(workspaceClient, workspaceNameOrID)
+		if err != nil {
+			return nil, nil, err
+		}
+	} else {
+		workspaces, workspaceErr := workspaceClient.Workspaces()
+		if workspaceErr != nil {
+			return nil, nil, workspaceErr
+		}
+		if len(workspaces) > 0 {
+			workspaceID, workspaceName = workspaceIDAndName(workspaces[0])
+		}
+	}
+	if workspaceID != "" {
+		cfg.WorkspaceID = workspaceID
+	}
+	if err := config.Save(cfg); err != nil {
+		return nil, nil, err
+	}
+	data := map[string]any{
+		"authenticated": true,
+		"user_id":       login.UserID,
+		"profile":       cfg.Profile,
+		"config_saved":  true,
+		"plaintext":     cfg.Plaintext,
+	}
+	if workspaceID != "" {
+		data["workspace_id"] = workspaceID
+		data["workspace_name"] = workspaceName
+		data["display"] = workspaceDisplay(workspaceName, workspaceID)
+	}
+	return data, nil, nil
+}
+
+func loginWithPayloadConfig(cfg config.Config, doc map[string]any) (config.Config, client.LoginResponse, error) {
+	baseURL, err := payload.String(doc, "base_url")
+	if err != nil {
+		baseURL = cfg.BaseURL
+	}
+	username, err := payload.String(doc, "username")
+	if err != nil {
+		username = cfg.Username
+	}
+	if strings.TrimSpace(baseURL) == "" {
+		return cfg, client.LoginResponse{}, fmt.Errorf("payload missing required field %q", "base_url")
+	}
+	if strings.TrimSpace(username) == "" {
+		return cfg, client.LoginResponse{}, fmt.Errorf("payload missing required field %q", "username")
+	}
+	username = normalizeLoginUsername(username)
+	password, err := payload.String(doc, "password")
+	if err != nil {
+		password = cfg.Password
+	}
+	if strings.TrimSpace(password) == "" {
+		return cfg, client.LoginResponse{}, fmt.Errorf("payload missing required field %q", "password")
+	}
+	cfg.BaseURL = baseURL
+	cfg.Username = username
+	cfg.Password = password
+	cfg.Plaintext = true
+	loginClient := client.New(cfg)
+	login, err := loginClient.Login(username, password)
+	if err != nil {
+		return cfg, client.LoginResponse{}, err
+	}
+	cfg.UserID = login.UserID
+	cfg.SID = login.SID
+	return cfg, login, nil
+}
+
+func normalizeLoginUsername(username string) string {
+	trimmed := strings.TrimSpace(username)
+	if len(trimmed) != 11 || trimmed[0] != '1' {
+		return username
+	}
+	for _, char := range trimmed {
+		if char < '0' || char > '9' {
+			return username
+		}
+	}
+	return "+86" + trimmed
+}
+
+func runInteractiveSetup(stdin io.Reader, stdout io.Writer, stderr io.Writer) int {
+	cfg, err := config.Load()
+	if err != nil {
+		writeFailure(stdout, "setup", "config_error", err.Error())
+		return 2
+	}
+	reader := bufio.NewReader(stdin)
+	defaultBaseURL := cfg.BaseURL
+	if strings.TrimSpace(defaultBaseURL) == "" {
+		defaultBaseURL = "https://www.ricequant.com"
+	}
+	baseURL, err := promptLine(reader, stderr, "AMS base URL", defaultBaseURL)
+	if err != nil {
+		writeFailure(stdout, "setup", "invalid_arguments", err.Error())
+		return 2
+	}
+	username, err := promptLine(reader, stderr, "Username", cfg.Username)
+	if err != nil {
+		writeFailure(stdout, "setup", "invalid_arguments", err.Error())
+		return 2
+	}
+	passwordDefault := ""
+	if strings.TrimSpace(cfg.Password) != "" {
+		passwordDefault = cfg.Password
+	}
+	password, err := promptLine(reader, stderr, "Password", passwordDefault)
+	if err != nil {
+		writeFailure(stdout, "setup", "invalid_arguments", err.Error())
+		return 2
+	}
+	doc := map[string]any{
+		"base_url": baseURL,
+		"username": username,
+		"password": password,
+	}
+	cfg, login, err := loginWithPayloadConfig(cfg, doc)
+	if err != nil {
+		writeFailure(stdout, "setup", classifyError(err), err.Error())
+		return 1
+	}
+	setupClient := client.New(cfg)
+	workspaces, err := setupClient.Workspaces()
+	if err != nil {
+		writeFailure(stdout, "setup", classifyError(err), err.Error())
+		return 1
+	}
+	workspaceID := ""
+	workspaceName := ""
+	if len(workspaces) > 0 {
+		workspaceID, workspaceName, err = promptWorkspace(reader, stderr, workspaces)
+		if err != nil {
+			writeFailure(stdout, "setup", "invalid_arguments", err.Error())
+			return 2
+		}
+		cfg.WorkspaceID = workspaceID
+	}
+	if err := config.Save(cfg); err != nil {
+		writeFailure(stdout, "setup", "config_error", err.Error())
+		return 1
+	}
+	data := map[string]any{
+		"authenticated": true,
+		"user_id":       login.UserID,
+		"profile":       cfg.Profile,
+		"config_saved":  true,
+		"plaintext":     cfg.Plaintext,
+	}
+	if workspaceID != "" {
+		data["workspace_id"] = workspaceID
+		data["workspace_name"] = workspaceName
+		data["display"] = workspaceDisplay(workspaceName, workspaceID)
+	}
+	if err := output.Write(stdout, output.Success("setup", data, nil)); err != nil {
+		_, _ = fmt.Fprintln(stderr, err)
+		return 1
+	}
+	return 0
+}
+
+func promptLine(reader *bufio.Reader, stderr io.Writer, label string, defaultValue string) (string, error) {
+	if strings.TrimSpace(defaultValue) == "" {
+		_, _ = fmt.Fprintf(stderr, "%s: ", label)
+	} else {
+		_, _ = fmt.Fprintf(stderr, "%s [%s]: ", label, defaultValue)
+	}
+	text, err := reader.ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", err
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		text = defaultValue
+	}
+	if strings.TrimSpace(text) == "" {
+		return "", fmt.Errorf("%s is required", label)
+	}
+	return text, nil
+}
+
+func promptWorkspace(reader *bufio.Reader, stderr io.Writer, workspaces []map[string]any) (string, string, error) {
+	if len(workspaces) == 1 {
+		id, name := workspaceIDAndName(workspaces[0])
+		return id, name, nil
+	}
+	_, _ = fmt.Fprintln(stderr, "Workspaces:")
+	for index, workspace := range workspaces {
+		id, name := workspaceIDAndName(workspace)
+		_, _ = fmt.Fprintf(stderr, "  %d. %s\n", index+1, workspaceDisplay(name, id))
+	}
+	selection, err := promptLine(reader, stderr, "Workspace name/id or number", "1")
+	if err != nil {
+		return "", "", err
+	}
+	if number, parseErr := strconv.Atoi(selection); parseErr == nil {
+		if number < 1 || number > len(workspaces) {
+			return "", "", fmt.Errorf("workspace selection %d is out of range", number)
+		}
+		id, name := workspaceIDAndName(workspaces[number-1])
+		return id, name, nil
+	}
+	for _, workspace := range workspaces {
+		id, name := workspaceIDAndName(workspace)
+		if selection == id || selection == name {
+			return id, name, nil
+		}
+	}
+	return "", "", fmt.Errorf("workspace %q does not exist", selection)
 }
 
 func configWithPayloadProfile(ctx context) config.Config {

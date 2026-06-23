@@ -35,7 +35,7 @@ func TestHelpAndVersionDoNotRequireConfig(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("version returned code %d: %s", code, stdout.String())
 	}
-	if strings.TrimSpace(stdout.String()) != "rqamsc version 0.0.1" {
+	if strings.TrimSpace(stdout.String()) != "rqamsc version 0.0.2" {
 		t.Fatalf("unexpected version output: %s", stdout.String())
 	}
 }
@@ -133,6 +133,81 @@ func TestSchemaGetProductExposesSingleProductLocator(t *testing.T) {
 	}
 }
 
+func TestSchemaGetInsertProductIncludesDefaultTemplate(t *testing.T) {
+	clearRQAMSCEnv(t)
+	t.Setenv("RQAMS_CLI_CONFIG", filepath.Join(t.TempDir(), "missing.json"))
+
+	var stdout strings.Builder
+	code := Run(
+		[]string{"schema", "get", "--payload", `{"command":"insert product"}`},
+		strings.NewReader(""),
+		&stdout,
+		&strings.Builder{},
+	)
+	if code != 0 {
+		t.Fatalf("schema get returned code %d: %s", code, stdout.String())
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal([]byte(stdout.String()), &envelope); err != nil {
+		t.Fatalf("invalid JSON output: %v", err)
+	}
+	data, ok := envelope["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("schema data should be an object: %#v", envelope["data"])
+	}
+	template, ok := data["default_payload_template"].(map[string]any)
+	if !ok {
+		t.Fatalf("schema should include default product template: %#v", data)
+	}
+	if template["data_source"] != "trade_and_valuation_report" || template["calendar"] != "exchange" {
+		t.Fatalf("unexpected default product template: %#v", template)
+	}
+	parameters, ok := data["parameters"].(map[string]any)
+	if !ok {
+		t.Fatalf("schema should include product parameters: %#v", data)
+	}
+	if _, ok := parameters["fee_settings"]; !ok {
+		t.Fatalf("schema should describe product template fields: %#v", parameters)
+	}
+}
+
+func TestSchemaGetTradingDates(t *testing.T) {
+	clearRQAMSCEnv(t)
+	t.Setenv("RQAMS_CLI_CONFIG", filepath.Join(t.TempDir(), "missing.json"))
+
+	var stdout strings.Builder
+	code := Run(
+		[]string{"schema", "get", "--payload", `{"command":"get trading-dates"}`},
+		strings.NewReader(""),
+		&stdout,
+		&strings.Builder{},
+	)
+	if code != 0 {
+		t.Fatalf("schema get returned code %d: %s", code, stdout.String())
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal([]byte(stdout.String()), &envelope); err != nil {
+		t.Fatalf("invalid JSON output: %v", err)
+	}
+	data, ok := envelope["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("schema data should be an object: %#v", envelope["data"])
+	}
+	if data["path"] != "market_data/trading_dates" || data["method"] != "GET" {
+		t.Fatalf("unexpected trading dates schema: %#v", data)
+	}
+	parameters, ok := data["parameters"].(map[string]any)
+	if !ok {
+		t.Fatalf("schema should include parameters: %#v", data)
+	}
+	if _, ok := parameters["type"]; !ok {
+		t.Fatalf("schema should describe type parameter: %#v", parameters)
+	}
+	if data["supports_ndjson"] != true {
+		t.Fatalf("trading dates should support ndjson: %#v", data)
+	}
+}
+
 func TestAuthSingleWordCommand(t *testing.T) {
 	clearRQAMSCEnv(t)
 	configPath := filepath.Join(t.TempDir(), "config.json")
@@ -175,6 +250,61 @@ func TestAuthSingleWordCommand(t *testing.T) {
 	}
 	if savedConfig["sid"] != "demo-sid" || savedConfig["user_id"] != "demo-user-id" || savedConfig["password"] != "demo-pass" {
 		t.Fatalf("config should persist login state: %#v", savedConfig)
+	}
+}
+
+func TestAuthNormalizesMainlandMobileUsername(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{name: "mainland mobile", input: "13800138000", expected: "+8613800138000"},
+		{name: "already prefixed", input: "+8613800138000", expected: "+8613800138000"},
+		{name: "email", input: "demo@example.com", expected: "demo@example.com"},
+		{name: "short digits", input: "1380013800", expected: "1380013800"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			clearRQAMSCEnv(t)
+			configPath := filepath.Join(t.TempDir(), "config.json")
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/api/user/login" {
+					t.Fatalf("unexpected path: %s", r.URL.Path)
+				}
+				if err := r.ParseForm(); err != nil {
+					t.Fatalf("ParseForm returned error: %v", err)
+				}
+				if r.Form.Get("username") != tc.expected || r.Form.Get("password") != "demo-pass" {
+					t.Fatalf("unexpected login form: %#v", r.Form)
+				}
+				http.SetCookie(w, &http.Cookie{Name: "sid", Value: "demo-sid"})
+				_, _ = w.Write([]byte(`{"code":0,"data":{"user_id":"demo-user-id"}}`))
+			}))
+			defer server.Close()
+			t.Setenv("RQAMS_CLI_CONFIG", configPath)
+
+			var stdout strings.Builder
+			code := Run(
+				[]string{"auth", "--payload", `{"base_url":` + quote(server.URL) + `,"username":` + quote(tc.input) + `,"password":"demo-pass"}`},
+				strings.NewReader(""),
+				&stdout,
+				&strings.Builder{},
+			)
+			if code != 0 {
+				t.Fatalf("auth returned code %d: %s", code, stdout.String())
+			}
+			raw, err := os.ReadFile(configPath)
+			if err != nil {
+				t.Fatalf("ReadFile returned error: %v", err)
+			}
+			var savedConfig map[string]any
+			if err := json.Unmarshal(raw, &savedConfig); err != nil {
+				t.Fatalf("saved config should be JSON: %v", err)
+			}
+			if savedConfig["username"] != tc.expected {
+				t.Fatalf("config should persist normalized username: %#v", savedConfig)
+			}
+		})
 	}
 }
 
@@ -228,6 +358,101 @@ func TestAuthProfilePersistsIsolatedSession(t *testing.T) {
 	profileB, ok := profiles["acct-b-w2"].(map[string]any)
 	if !ok || profileB["sid"] != "b-sid" || profileB["user_id"] != "b-id" || profileB["password"] != "demo-pass" {
 		t.Fatalf("unexpected acct-b-w2 profile: %#v", profileB)
+	}
+}
+
+func TestSetupInteractivePersistsLoginAndWorkspace(t *testing.T) {
+	clearRQAMSCEnv(t)
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/user/login":
+			if err := r.ParseForm(); err != nil {
+				t.Fatalf("ParseForm returned error: %v", err)
+			}
+			if r.Form.Get("username") != "demo-user" || r.Form.Get("password") != "demo-pass" {
+				t.Fatalf("unexpected login form: %#v", r.Form)
+			}
+			http.SetCookie(w, &http.Cookie{Name: "sid", Value: "demo-sid"})
+			_, _ = w.Write([]byte(`{"code":0,"data":{"user_id":"demo-user-id"}}`))
+		case "/api/user/v1/workspaces":
+			sid, err := r.Cookie("sid")
+			if err != nil || sid.Value != "demo-sid" {
+				t.Fatalf("expected setup sid, got %#v err=%v", sid, err)
+			}
+			_, _ = w.Write([]byte(`{"data":[{"id":"w1","name":"one"},{"id":"w2","name":"two"}]}`))
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	t.Setenv("RQAMS_CLI_CONFIG", configPath)
+
+	stdin := strings.NewReader(server.URL + "\ndemo-user\ndemo-pass\n2\n")
+	var stdout strings.Builder
+	var stderr strings.Builder
+	code := Run([]string{"setup"}, stdin, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("setup returned code %d\nstdout: %s\nstderr: %s", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "AMS base URL") || !strings.Contains(stderr.String(), "Workspaces:") {
+		t.Fatalf("setup should prompt on stderr, got: %s", stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `"command": "setup"`) ||
+		!strings.Contains(stdout.String(), `"authenticated": true`) ||
+		!strings.Contains(stdout.String(), `"workspace_id": "w2"`) {
+		t.Fatalf("unexpected setup output: %s", stdout.String())
+	}
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile returned error: %v", err)
+	}
+	if !strings.Contains(string(raw), `"sid": "demo-sid"`) ||
+		!strings.Contains(string(raw), `"password": "demo-pass"`) ||
+		!strings.Contains(string(raw), `"workspace_id": "w2"`) {
+		t.Fatalf("setup config not saved as expected: %s", string(raw))
+	}
+}
+
+func TestSetupInteractiveNormalizesMainlandMobileUsername(t *testing.T) {
+	clearRQAMSCEnv(t)
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/user/login":
+			if err := r.ParseForm(); err != nil {
+				t.Fatalf("ParseForm returned error: %v", err)
+			}
+			if r.Form.Get("username") != "+8613800138000" || r.Form.Get("password") != "demo-pass" {
+				t.Fatalf("unexpected login form: %#v", r.Form)
+			}
+			http.SetCookie(w, &http.Cookie{Name: "sid", Value: "demo-sid"})
+			_, _ = w.Write([]byte(`{"code":0,"data":{"user_id":"demo-user-id"}}`))
+		case "/api/user/v1/workspaces":
+			_, _ = w.Write([]byte(`{"data":[{"id":"w1","name":"one"}]}`))
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	t.Setenv("RQAMS_CLI_CONFIG", configPath)
+
+	stdin := strings.NewReader(server.URL + "\n13800138000\ndemo-pass\n")
+	var stdout strings.Builder
+	code := Run([]string{"setup"}, stdin, &stdout, &strings.Builder{})
+	if code != 0 {
+		t.Fatalf("setup returned code %d: %s", code, stdout.String())
+	}
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile returned error: %v", err)
+	}
+	var savedConfig map[string]any
+	if err := json.Unmarshal(raw, &savedConfig); err != nil {
+		t.Fatalf("saved config should be JSON: %v", err)
+	}
+	if savedConfig["username"] != "+8613800138000" {
+		t.Fatalf("config should persist normalized username: %#v", savedConfig)
 	}
 }
 
@@ -1351,6 +1576,56 @@ func TestCustomizedInstrumentAndBenchmarkCommands(t *testing.T) {
 	code = Run([]string{"insert", "customized-benchmark", "--payload", `{"customized_benchmark":{"name":"bench"}}`}, strings.NewReader(""), &stdout, &strings.Builder{})
 	if code != 0 || !strings.Contains(stdout.String(), `"id": "cb1"`) {
 		t.Fatalf("unexpected benchmark insert code=%d output=%s", code, stdout.String())
+	}
+}
+
+func TestTradingDatesCommandRequestsMarketDataEndpoint(t *testing.T) {
+	clearRQAMSCEnv(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Fatalf("unexpected method: %s", r.Method)
+		}
+		if r.URL.Path != "/api/rqams/v2/market_data/trading_dates" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		query := r.URL.Query()
+		if query.Get("type") != "exchange" ||
+			query.Get("start_date") != "2026-01-01" ||
+			query.Get("end_date") != "2026-01-31" ||
+			query.Get("fmt") != "date" {
+			t.Fatalf("unexpected query: %s", r.URL.RawQuery)
+		}
+		if r.Header.Get("X-AMS-Workspace") != "w1" {
+			t.Fatalf("expected workspace header, got %q", r.Header.Get("X-AMS-Workspace"))
+		}
+		_, _ = w.Write([]byte(`["2026-01-05","2026-01-06"]`))
+	}))
+	defer server.Close()
+
+	configPath := writeConfig(t, server.URL, "w1")
+	t.Setenv("RQAMS_CLI_CONFIG", configPath)
+
+	var stdout strings.Builder
+	code := Run(
+		[]string{"get", "trading-dates", "--payload", `{"type":"exchange","start_date":"2026-01-01","end_date":"2026-01-31","fmt":"date"}`},
+		strings.NewReader(""),
+		&stdout,
+		&strings.Builder{},
+	)
+	if code != 0 {
+		t.Fatalf("trading dates returned code %d: %s", code, stdout.String())
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal([]byte(stdout.String()), &envelope); err != nil {
+		t.Fatalf("invalid JSON output: %v", err)
+	}
+	data, ok := envelope["data"].([]any)
+	if !ok || len(data) != 2 || data[0] != "2026-01-05" {
+		t.Fatalf("unexpected trading dates data: %#v", envelope["data"])
+	}
+	meta := envelope["meta"].(map[string]any)
+	if meta["resolved_path"] != "market_data/trading_dates" || !strings.Contains(stringifyLocal(meta["query"]), "type=exchange") {
+		t.Fatalf("unexpected metadata: %#v", meta)
 	}
 }
 

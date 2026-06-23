@@ -23,6 +23,7 @@ rqamsc <verb> <resource> --payload <json|@file|->
 ```powershell
 npm install -g @ricequant2026/rqams-cli
 rqamsc --version
+rqamsc setup
 ```
 
 如果安装后提示缺少平台包，通常是 optional dependencies 被禁用，可以显式开启后重新安装：
@@ -43,7 +44,7 @@ go run ./cmd/rqamsc schema list
 构建当前平台二进制：
 
 ```powershell
-go build -trimpath -ldflags "-s -w -X rqams-cli/internal/app.Version=0.0.1" -o rqamsc.exe ./cmd/rqamsc
+go build -trimpath -ldflags "-s -w -X rqams-cli/internal/app.Version=0.0.2" -o rqamsc.exe ./cmd/rqamsc
 .\rqamsc.exe --version
 ```
 
@@ -57,7 +58,7 @@ Windows x64：
 $env:CGO_ENABLED = "0"
 $env:GOOS = "windows"
 $env:GOARCH = "amd64"
-go build -trimpath -ldflags "-s -w -X rqams-cli/internal/app.Version=0.0.1" -o dist/rqamsc-windows-amd64.exe ./cmd/rqamsc
+go build -trimpath -ldflags "-s -w -X rqams-cli/internal/app.Version=0.0.2" -o dist/rqamsc-windows-amd64.exe ./cmd/rqamsc
 ```
 
 Linux x64：
@@ -66,7 +67,7 @@ Linux x64：
 $env:CGO_ENABLED = "0"
 $env:GOOS = "linux"
 $env:GOARCH = "amd64"
-go build -trimpath -ldflags "-s -w -X rqams-cli/internal/app.Version=0.0.1" -o dist/rqamsc-linux-amd64 ./cmd/rqamsc
+go build -trimpath -ldflags "-s -w -X rqams-cli/internal/app.Version=0.0.2" -o dist/rqamsc-linux-amd64 ./cmd/rqamsc
 ```
 
 macOS arm64：
@@ -75,7 +76,7 @@ macOS arm64：
 $env:CGO_ENABLED = "0"
 $env:GOOS = "darwin"
 $env:GOARCH = "arm64"
-go build -trimpath -ldflags "-s -w -X rqams-cli/internal/app.Version=0.0.1" -o dist/rqamsc-macos-arm64 ./cmd/rqamsc
+go build -trimpath -ldflags "-s -w -X rqams-cli/internal/app.Version=0.0.2" -o dist/rqamsc-macos-arm64 ./cmd/rqamsc
 ```
 
 `npm run build:npm` 会执行同样的交叉编译流程，并用 `package.json` 里的版本号注入二进制。
@@ -105,6 +106,7 @@ npm link
 
 ```powershell
 rqamsc --version
+rqamsc setup
 rqamsc schema list
 rqamsc get product-list --payload '{}'
 ```
@@ -132,6 +134,7 @@ npm install -g @ricequant2026/rqams-cli
 
 - 统一命令入口：`rqamsc <verb> <resource> --payload ...`
 - 命令发现：`--help`、`--version`、`schema list`、`schema get`
+- 市场数据查询：交易日历等只读数据
 - Workspace、产品、产品组管理
 - 交易流水、估值表、托管事件、份额事件
 - 自定义合约、自定义基准、自定义指标
@@ -154,6 +157,7 @@ rqamsc schema get --payload '{"command":"get product-list"}'
 ## 配置
 
 本地状态默认保存在操作系统用户配置目录的 `rqams-cli/config.json`。用户执行 `auth` 和 `use workspace` 后，后续命令会自动复用本地配置，不需要设置环境变量。
+`auth` 和 `setup` 的 `username` 如果是 11 位中国大陆手机号，CLI 会自动补 `+86` 后登录并保存；已经包含区号、邮箱或普通用户名会保持原样。
 
 当前 CLI 会把密码和登录 session 明文写入本地配置。session 过期时，CLI 会用本地保存的密码自动重新登录并刷新 session。若用于生产凭据长期保存，需要改为系统 keychain 或等价安全存储。
 

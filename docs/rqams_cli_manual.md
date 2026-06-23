@@ -37,7 +37,13 @@ payload 支持三种来源：
 
 ## 认证与 Workspace
 
-运行 `auth` 会登录 RQAMS，并默认把密码和返回的 session 保存到本地配置。后续命令会复用该登录态；session 过期时，CLI 会用本地保存的密码自动重新登录并刷新 session：
+首次安装后推荐先运行交互式配置：
+
+```powershell
+rqamsc setup
+```
+
+CLI 会提示输入 AMS 服务地址、用户名、密码，并在登录成功后列出可用 workspace 供选择。也可以继续使用 `auth` 和 `use workspace` 分步配置。运行 `auth` 会登录 RQAMS，并默认把密码和返回的 session 保存到本地配置。后续命令会复用该登录态；session 过期时，CLI 会用本地保存的密码自动重新登录并刷新 session。`username` 如果是 11 位中国大陆手机号，CLI 会自动补 `+86` 后登录并保存；已经包含区号、邮箱或普通用户名会保持原样：
 
 ```powershell
 rqamsc auth --payload '{"base_url":"https://www.ricequant.com","username":"...","password":"..."}'
@@ -155,7 +161,8 @@ rqamsc schema get --payload '{"command":"get product-list"}'
 
 | 业务文档 | 覆盖命令 |
 | --- | --- |
-| [认证与 Workspace](commands/auth_workspace.md) | `auth`, `get workspace-list`, `use workspace`, `get current-workspace` |
+| [认证与 Workspace](commands/auth_workspace.md) | `setup`, `auth`, `get workspace-list`, `use workspace`, `get current-workspace` |
+| [市场数据](commands/market_data.md) | 交易日历等市场数据查询 |
 | [产品与产品组](commands/products.md) | 产品、产品组查询/创建/更新/删除 |
 | [权限分享](commands/permissions.md) | 产品和产品组权限查询、分享、修改、删除 |
 | [交易流水](commands/trades.md) | 交易流水查询、插入、删除，交割单上传 |
@@ -174,6 +181,7 @@ rqamsc schema get --payload '{"command":"get product-list"}'
 
 ```powershell
 rqamsc get product-list --payload '{"fields":["id","name","start_date","label"],"limit":20,"format":"ndjson"}'
+rqamsc get trading-dates --payload '{"type":"exchange","start_date":"2026-01-01","end_date":"2026-01-31"}'
 rqamsc get trade-list --payload '{"product_id_or_name":"...","start_date":"2026-01-01","end_date":"2026-01-31","limit":20}'
 rqamsc insert valuation-report --payload '{"product_id_or_name":"...","file_paths":["D:/tmp/valuation.xlsx"]}'
 rqamsc insert paper-trading --payload '{"template":"equity_long","name":"demo","benchmark":"index,000300.XSHG","start_date":"2026-01-01","init_amount":1000000,"algo":"open"}'
